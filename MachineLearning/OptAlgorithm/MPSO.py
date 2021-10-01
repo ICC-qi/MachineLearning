@@ -14,14 +14,61 @@ import os
 import sys
 from sklearn.model_selection import train_test_split
 from sklearn import preprocessing
+from sklearn.metrics import classification_report, confusion_matrix
 
+'''
+import itertools
+def plot_confusion_matrix(cm, classes,
+                          normalize=False,
+                          title='Confusion matrix',
+                          cmap=plt.cm.Blues):
+    """
+    This function prints and plots the confusion matrix.
+    Normalization can be applied by setting `normalize=True`.
+    """
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+
+    print(cm)
+
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+
+
+# Compute confusion matrix
+cnf_matrix = confusion_matrix(y_test, yhat, labels=[1,0])
+np.set_printoptions(precision=2)
+
+
+# Plot non-normalized confusion matrix
+plt.figure()
+plot_confusion_matrix(cnf_matrix, classes=['churn=1','churn=0'],normalize= False,  title='Confusion matrix')
+'''
 
 def print_hi(name):
     # Use a breakpoint in the code line below to debug your script.
     print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
 
 
-def load_train_patterns_test():
+def load_train_patterns_test():  # a demo to validate the code
     # datacsv = pd.read_csv("Data_pswarm.csv", delimiter=",")
     pattern_pos = np.array([[2.0, 2.0], [2.0, 3.0], [3.0, 2.0], [3.0, 3.0],
                             [-2.0, 2.0], [-2.0, 3.0], [-3.0, 2.0], [-3.0, 3.0],
@@ -59,11 +106,11 @@ def load_train_patterns_test():
     #return pattern_pos, pattern_label, dim, class_num, patterns_num
 
 
-def load_train_patterns():
+def load_train_patterns():   # load real data set
     datacsv = pd.read_csv("Data_pswarm.csv", delimiter=",")
     datacsv.head()
     type(datacsv)
-    datacsv1 = datacsv[datacsv.category == 'Baby Powder']
+    datacsv1 = datacsv[datacsv.category == 'Detergent Powder']
     # Six Product Categories in the data
     # Categories are: Baby Powder, Detergent Powder, Single Serving Coffee, Toothpaste, Snacks, Canned Tuna
     print('datacsv1.shape')
@@ -92,7 +139,7 @@ def load_train_patterns():
     return xTrain, xTest, yTrain, yTest, dim, class_num, patterns_num
 
 
-def fit_fun(X, X_label, part_i, pattern_pos, pattern_label, pattern_class_particleID, patterns_num):  # 适应函数
+def fit_fun(X, X_label, part_i, pattern_pos, pattern_label, pattern_class_particleID, patterns_num):  # 适应函数 fitness function
     # for i in range(len(pattern_class_particleID)):
     g = []  # right pattern set
     b = []  # wrong pattern set
@@ -100,27 +147,86 @@ def fit_fun(X, X_label, part_i, pattern_pos, pattern_label, pattern_class_partic
     #print(index)  # eg [2, 5, 8] 第2，5，8个pattern是由该粒子分类的
     if index:
         for j in index:
-            j_label = pattern_label[j]  # 该pattern的类别
-            j_pos = pattern_pos[j]  # 该pattern的位置
-            Euc_dis = np.sqrt(np.sum(np.square(j_pos - X)))  # 欧式距离
+            j_label = pattern_label[j]  # 该pattern的类别 the label of this pattern
+            j_pos = pattern_pos[j]  # 该pattern的位置 the position of this pattern
+            Euc_dis = np.sqrt(np.sum(np.square(j_pos - X)))  # 欧式距离 Euc distance
             f = 1 / (1.0 + Euc_dis)
             if j_label == X_label:
                 g.append(f)
             else:
                 b.append(f)
         if g:
-            if b:  # 有对有错
+            if b:  # 有对有错 have right and wrong patterns
                 fitness_value = (sum(g) - sum(b)) / (sum(g) + sum(b)) + 1.0
-            else:  # 全对
+            else:  # 全对 all patterns right
                 fitness_value = sum(g) / patterns_num + 2.0
-        else:  # 没有对的
+        else:  # 没有对的 have no right patterns
             fitness_value = 0.0
-    else:  # 没有分类的pattern
+    else:  # 没有分类的pattern no patterns are classified by this particles
         fitness_value = 0.0
     return fitness_value
 
     # return -np.abs(np.sin(X[0]) * np.cos(X[1]) * np.exp(np.abs(1 - np.sqrt(X[0] ** 2 + X[1] ** 2) / np.pi)))
 
+def delete_and_check_pattern_class(part_best_pos, xTestfit, yTest, pattern_class_particleID_best, dim, size, class_num):
+    # 测试集找到最近粒子对应的类别，以及删去无关粒子 Test set finds the nearest particle corresponding to the category, and delete irrelevant particles
+    # 先删去无用粒子
+    pattern_class_particleID_test = [0 for ii in range(len(yTest))]  # 测试集中，每个pattern对应的分类粒子序号
+    yPred = [0 for jj in range(len(yTest))]  # 测试集的预测label list
+    count = 0  # 正确分类的数量
+    sum_num = len(yTest)  # 总数
+    TP = 0  # 预测为1 实际为1 predict 1 label 1
+    TN = 0  # 预测为0 实际为0 predict 0 label 0
+    FP = 0  # 预测为1 实际为0 predict 1 label 0
+    FN = 0  # 预测为0 实际为1 predict 0 label 1
+    for p_i in range(sum_num):  # 第p_i号pattern
+        min_Euc_dis = 100.0
+        best_part_i = 0  # 分类当前pattern的粒子的序号
+        for i in range(size * class_num):  # 第i号粒子
+            assert(size * class_num == len(part_best_pos))
+            part_pos = part_best_pos[i]
+            pattern_pos = xTestfit[p_i]
+            Euc_dis = np.sqrt(np.sum(np.square(part_pos - pattern_pos)))
+            if Euc_dis < min_Euc_dis and i in pattern_class_particleID_best:  # 在训练集结果中没有用到的粒子删去，只保留用到的粒子
+                min_Euc_dis = Euc_dis
+                pattern_class_particleID_test[p_i] = i
+                best_part_i = i
+        pattern_i_label = yTest[p_i]  # 当前pattern的实际label
+        part_i_cls = math.floor(best_part_i / size)  # 粒子所属的类别, 当前pattern的预测label
+        yPred[p_i] = part_i_cls
+        if pattern_i_label == part_i_cls:  # correct
+            count += 1
+        if part_i_cls == 1:
+            if pattern_i_label == 1:
+                TP += 1
+            else:
+                FP += 1
+        else:
+            if pattern_i_label == 1:
+                FN += 1
+            else:
+                TN += 1
+    print('TP: ' + str(TP))
+    print('TN: ' + str(TN))
+    print('FP: ' + str(FP))
+    print('FN: ' + str(FN))
+    print('------')
+    accuracy = (TP + TN) / (TP + TN + FP + FN)
+    if TP == 0 and FP == 0:
+        precision = 0
+    else:
+        precision = TP / (TP + FP)
+    if TP == 0 and FN == 0:
+        recall = 0
+    else:
+        recall = TP / (TP + FN)
+    # print('precision: '+str(precision))
+    # print('recall: '+str(recall))
+    if precision == 0 and recall == 0:
+        F1score = 0
+    else:
+        F1score = 2 * (precision * recall) / (precision + recall)
+    return accuracy, precision, recall, F1score, yPred
 
 class Particle:
     # 初始化
@@ -183,9 +289,10 @@ class PSO:
         self.pattern_pos = pattern_pos
         self.pattern_label = pattern_label
         self.patterns_num = patterns_num  # patterns的数量
-        self.pattern_class_particleID = [0 for i in range(len(pattern_label))]
+        self.pattern_class_particleID = [0 for i in range(len(pattern_label))]  # 每个pattern对应的分类粒子序号
         self.pattern_class_particleID_best = [0 for i in range(len(pattern_label))]
         self.part_best_pos = np.zeros((self.size * self.class_num, self.dim))  # 存储最好的粒子位置, 20*2
+        self.best_iteration = 0  # 哪次迭代出现的最好粒子位置
 
         # 对种群进行初始化
         # self.Particle_list = np.zeros((self.class_num, self.size, self.dim))
@@ -345,6 +452,7 @@ class PSO:
             part_y_1 = []
             print('iteration: ' + str(i))
             if self.evaluation > 0.99:
+                #self.best_iteration = i
                 break
             else:
                 # for part in self.Particle_list:
@@ -367,6 +475,7 @@ class PSO:
                 # self.evaluation = 0
                 if self.evaluation > best_eval:  # 当前最好的粒子位置，以准确率最高的原则判定的
                     best_eval = self.evaluation
+                    self.best_iteration = i
                     self.pattern_class_particleID_best = self.pattern_class_particleID.copy()
                     for particle_i in range(self.size * self.class_num):
                         particle = self.Particle_list[particle_i]
@@ -378,11 +487,12 @@ class PSO:
                         else:
                             part_x_1.append(part_pos[0])
                             part_y_1.append(part_pos[1])
+                    # demo test 64点 画出二维图像 粒子在坐标系中的位置
                     #plt.figure()
                     #plt.scatter(part_x_0, part_y_0, c='r', alpha=0.5)
                     #plt.scatter(part_x_1, part_y_1, c='g', alpha=0.5)
                     #plt.show()
-        return self.part_best_pos, self.fitness_val_list, self.precision_list, self.recall_list, self.F1score_list  # , self.get_bestPosition()
+        return self.part_best_pos, self.fitness_val_list, self.precision_list, self.recall_list, self.F1score_list, self.best_iteration, self.pattern_class_particleID_best  # , self.get_bestPosition()
 
 
 # Press the green button in the gutter to run the script.
@@ -391,8 +501,8 @@ if __name__ == '__main__':
 
     # 加载数据 load data
     #pattern_pos, pattern_label, dim, class_num, patterns_num = load_train_patterns_test()
-    xTrain, xTest, yTrain, yTest, dim, class_num, patterns_num = load_train_patterns_test()  # 64点的测试demo
-    #xTrain, xTest, yTrain, yTest, dim, class_num, patterns_num = load_train_patterns()  # 真实数据
+    #xTrain, xTest, yTrain, yTest, dim, class_num, patterns_num = load_train_patterns_test()  # 64点的测试demo
+    xTrain, xTest, yTrain, yTest, dim, class_num, patterns_num = load_train_patterns()  # 真实数据
     # print(xTrain.shape, xTest.shape,yTrain.shape, yTest.shape, dim, class_num, patterns_num)
 
     # Data Standardization 数据标准化
@@ -402,15 +512,15 @@ if __name__ == '__main__':
 
     # hyper-parameters 设置超参
     # dim = 2
-    size = 7  # 每类粒子个数
-    iter_num = 100
-    x_max = 2
-    max_vel = 4  # 最大速度：默认0.5
+    size = 15  # 每类粒子个数，15最好 particle number per class
+    iter_num = 100  # 迭代次数 iterations
+    x_max = 3  # 默认2 max position of initial particles' position
+    max_vel = 2  # 最大速度：默认0.5 max speed of particles
 
     # MPSO粒子初始化
-    #pso = PSO(dim, size, class_num, iter_num, x_max, max_vel, pattern_pos, pattern_label, patterns_num)
+    #pso = PSO(dim, size, class_num, iter_num, x_max, max_vel, pattern_pos, pattern_label, patterns_num)  # 废弃
     pso = PSO(dim, size, class_num, iter_num, x_max, max_vel, xTrainfit, yTrain, len(yTrain))
-    pso_test = PSO(dim, size, class_num, iter_num, x_max, max_vel, xTestfit, yTest, len(yTest))
+    #pso_test = PSO(dim, size, class_num, iter_num, x_max, max_vel, xTestfit, yTest, len(yTest))  # 废弃
 
     # 训练 原来的标准PSO代码 training the code of PSO
     # fit_var_list, best_pos = pso.update()
@@ -418,24 +528,29 @@ if __name__ == '__main__':
     # print("最优解:" + str(fit_var_list[-1]))
 
     # MPSO训练 MPSO training
-    part_best_pos, fit_var_list, train_precision_list, train_recall_list, train_F1score_list = pso.update()
+    part_best_pos, fit_var_list, train_precision_list, train_recall_list, train_F1score_list, best_iteration, pattern_class_particleID_best = pso.update()
     print('training finish')
-    test_evaluation, test_precision, test_recall, test_F1score = pso_test.check_pattern_class()
-    print('training set evaluation:')
-    print(max(fit_var_list))
+    print('best iteration is: ' + str(best_iteration))
+    #test_evaluation, test_precision, test_recall, test_F1score = pso_test.check_pattern_class()
+    print('training set accuracy:')
+    print(fit_var_list[best_iteration])
     print('training precision:')
-    print(max(train_precision_list))
+    print(train_precision_list[best_iteration])
     print('training recall:')
-    print(max(train_recall_list))
+    print(train_recall_list[best_iteration])
     print('training F1score:')
-    print(max(train_F1score_list))
-    plt.figure()
-    #plt.plot(np.linspace(0, iter_num, iter_num), fit_var_list, c='r', alpha=0.5)
-    plt.plot(np.linspace(0, len(fit_var_list), len(fit_var_list)), fit_var_list, c='r', alpha=0.5)
-    plt.show()
+    print(train_F1score_list[best_iteration])
     print('best particles position:')
     print(part_best_pos)
-    print('test set evaluation:')
+    # 绘制图像 accuracy随着iteration的变化曲线
+    #plt.figure()
+    #plt.plot(np.linspace(0, iter_num, iter_num), fit_var_list, c='r', alpha=0.5)
+    #plt.plot(np.linspace(0, len(fit_var_list), len(fit_var_list)), fit_var_list, c='r', alpha=0.5)
+    #plt.show()
+
+    # 测试 test
+    test_evaluation, test_precision, test_recall, test_F1score, yPred = delete_and_check_pattern_class(part_best_pos, xTestfit, yTest, pattern_class_particleID_best, dim, size, class_num)
+    print('test set accuracy:')
     print(test_evaluation)
     print('test precision:')
     print(test_precision)
@@ -443,6 +558,10 @@ if __name__ == '__main__':
     print(test_recall)
     print('test F1score:')
     print(test_F1score)
+    # Compute confusion matrix
+    cnf_matrix = confusion_matrix(yTest, yPred, labels=[1, 0])
+    print('confusion matrix:')
+    print(cnf_matrix)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
 
